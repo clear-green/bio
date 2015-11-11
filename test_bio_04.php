@@ -10,6 +10,7 @@ $command = $text2array[0];
 $arg1 = $text2array[1];
 $arg2 = $text2array[2];
 $arg3 = $text2array[3];
+$version = 2;
 
 function jsonPost ($url_in,$array_in) {
       $json_reply = json_encode($array_in);
@@ -124,8 +125,8 @@ function makeQr ($btcurl_in) {
 }
 
 function checkConnection ($block_io_in) {
-  $json_reply = $block_io_in->get_balance(array());
-  if ($json_reply == '') {
+  $obj_reply = $block_io_in->get_balance(array());
+  if ($obj_reply == '') {
     return false;
   } else {
     return true;
@@ -134,20 +135,18 @@ function checkConnection ($block_io_in) {
 
 function newAddress ($block_io_in,$label_in='',$amount_in=0) {
   if ($label_in == '') {
-    $response_json = $block_io_in->get_new_address();
-    if ($response_json !== '') {
-      $response_array = json_decode($response_json,true);
-      $btcaddress = $response_array['data']['address'];
-      $btclabel = $response_array['data']['label'];
+    $response_obj = $block_io_in->get_new_address();
+    if ($response_obj !== '') {
+      $btcaddress = $response_obj->data->address;
+      $btclabel = $response_obj->data->label;
       $text = 'Your new address is '.$btcaddress.' labeled '.$btclabel;
     } else {
       $text = 'No connection to Block.io. Maybe they are DDOSed again. ';
     }
   } else {
-    $response_json = $block_io_in->get_new_address(array('label' => $label_in));
-    if ($response_json !== '') {
-      $response_array = json_decode($response_json,true);
-      $btcaddress = $response_array['data']['address'];
+    $response_obj = $block_io_in->get_new_address(array('label' => $label_in));
+    if ($response_obj !== '') {
+      $btcaddress = $response_obj->data->address;
       $text = 'Awaiting '.$amount_in.' BTC to '.$btcaddress;
     } else {
       $text = 'No connection to Block.io. Maybe they are DDOSed again. ';
@@ -160,35 +159,52 @@ function newAddress ($block_io_in,$label_in='',$amount_in=0) {
     "text" => $btcurl,
     "image_url" => makeQr($btcurl),
     "color" => '#764FA5'));
-  $array_attachment = array("attachments" => $array_attachment_parts);
-  return $array_attachment;
+  $msg = array("attachments" => $array_attachment_parts);
+  $status = $response_obj->status;
+  if ($status == 'fail') {
+  $msg = $response_obj->data->error_message;
+  }
+  return $msg;
 }
 
 function checkBalance ($block_io_in) {
-  $json_reply = $block_io_in->get_balance(array());
-  if ($json_reply == '') {
+  $obj_reply = $block_io_in->get_balance(array());
+  if ($obj_reply == '') {
     return false;
   } else {
-    $array_reply = json_decode($json_reply,true);
-    $balance_out = $array_reply['data']['available_balance'];
-  return $balance_out;
+    $msg = $obj_reply->data->available_balance;
+  if ($msg == '') {
+  $msg = $result_obj->data->error_message;
+  }
+  return $msg;
   }
 }
 
-function makeRandomString($bits = 256) {
+/*function makeRandomString($bits = 256) {
   $bytes = ceil($bits / 8);
   $return = '';
   for ($i = 0; $i < $bytes; $i++) {
     $return .= chr(mt_rand(0, 255));
   }
   return $return;
-}
+}*/
 
-function transferFunds ($amount_in,$from_label_in,$to_label_in) {
-  $nonce = hash('sha512', makeRandomString());
-  $result_json = $block_io->withdraw_from_labels(array('amounts' => $amount_in, 'from_labels' => $from_label_in, 'to_labels' => $to_label_in));
-  $array_reply = json_decode($result_json,true);
-  $msg = $array_reply['data']['amount_sent'];
+function transferFunds ($block_io_in,$amount_in,$from_label_in,$to_label_in) {
+  //$nonce = hash('sha512', makeRandomString());
+  $chkam = $amount_in+0;
+  
+  if ($chkam > 0) {
+  $result_obj = $block_io_in->withdraw_from_labels(array('amounts' => $amount_in, 'from_labels' => $from_label_in, 'to_labels' => $to_label_in, 'pin' => $pin));
+  $status = $result_obj->status;
+  if ($status == 'success') {
+    $msg = 'Amount sent ';
+    $msg .= $result_obj->data->amount_sent;
+  } else {
+    $msg = $result_obj->data->error_message;
+  }
+  } else {
+    $msg = 'Use an amount of more than 0 and account for the network fees.';
+  }
   return $msg;
 }
 
@@ -203,9 +219,8 @@ switch ($command) {
 	    $msg = 'Be my owner. Register: reg (your Block.io API key) (your Block.io pin) I will keep it encrypted.';
 	  }
         } else {
-	  $creds = checkOwner($userid);
-	  $apiKey = $creds['apiKey'];
-	  $pin = $creds['pin'];
+	  $apiKey = $owner['apiKey'];
+	  $pin = $owner['pin'];
 	  $block_io = new BlockIo($apiKey, $pin, $version);
 	  $msg = 'Hi '.$username.'! ';
 	  $bal = checkBalance($block_io);
@@ -257,9 +272,8 @@ switch ($command) {
 	    $msg = 'You are not my owner.';
 	  } 
         } else {
-	  $creds = checkOwner($userid);
-	  $apiKey = $creds['apiKey'];
-	  $pin = $creds['pin'];
+	  $apiKey = $owner['apiKey'];
+	  $pin = $owner['pin'];
 	  $block_io = new BlockIo($apiKey, $pin, $version);
 	  $bal = checkBalance($block_io);
 	    if (!$bal) {
@@ -281,9 +295,9 @@ switch ($command) {
 	    $text_array = array("text" => $msg);
 	  } 
         } else {
-	  $creds = checkOwner($userid);
-	  $apiKey = $creds['apiKey'];
-	  $pin = $creds['pin'];
+	  $apiKey = $owner['apiKey'];
+	  $pin = $owner['pin'];
+	  $block_io = new BlockIo($apiKey, $pin, $version);
 	  $text_array = newAddress ($block_io,$arg1,$arg2); 
 	  jsonPost($reply_post_to_address,$text_array);
         }
@@ -297,8 +311,10 @@ switch ($command) {
 	    $text_array = array("text" => $msg);
 	  } 
         } else {
-	  $msg = 'Amount sent ';
-	  $msg .= transferFunds ($arg1,$arg2,$arg3);
+	  $apiKey = $owner['apiKey'];
+	  $pin = $owner['pin'];
+	  $block_io = new BlockIo($apiKey, $pin, $version);
+	  $msg = transferFunds ($block_io,$arg1,$arg2,$arg3);
 	  $text_array = array("text" => $msg);
 	  jsonPost($reply_post_to_address,$text_array);
         }
